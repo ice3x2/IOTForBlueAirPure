@@ -1,8 +1,18 @@
 
 #include <ESP8266WiFi.h>
+#include <WiFiClient.h>
+#include <WiFiUdp.h>
 #include<PubSubClient.h>
 
 #include "DictionaryMap.hpp"
+#include "StartupTimer.hpp"
+
+#define HEAVY_BUILD
+//#define LIGHT_BUILD
+
+#ifdef HEAVY_BUILD
+#include "ESP8266ConfigurationWizard.hpp"
+#endif
 
 #define VER 1
 
@@ -19,38 +29,26 @@
 #define BUTTON_SETUP_IN_DELAY 30000
 #define OUT_DELAY 50
 
+#define RESPONSE_STATUS_DELAY 100
+
 #define TOPIC_REQUEST_STATE  "/qstate"
 #define TOPIC_STATE  "/state"
 #define TOPIC_MODE  "/mode"
 
+
+
 /////////////////////////////////////////////////
+#ifdef LIGHT_BUILD
+
 const char* ssid = "...";
 const char* password = "...";
 const char* mqtt_server = "broker.hivemq.com";
+String _clientID = "client12354";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 PubSubClient* _mqtt = &client;
 
-///////////////////////////////////////////////
-
-uint8_t _mode = MODE_OFF;
-uint8_t _targetMode = MODE_OFF;
-
-unsigned long _lastModeChanged = 0;
-unsigned long _lastButtonPushed = 0;
-unsigned long _lastOutTime = 0;
-
-bool _isPushButton = false;
-
-String _clientID = "client12354";
-String _topicRoot = "ibap";
-String _topicState;
-String _topicRequestState;
-String _topicMode;
-
-void callbackSubscribe(char* topic, byte* payload, unsigned int length);
-void publishState();
 
 void setup_wifi() {
 
@@ -74,17 +72,8 @@ void setup_wifi() {
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
-}
 
-
-void setup() {
-
-  Serial.begin(115200);
-
-
-  setup_wifi();
   client.setServer(mqtt_server, 1883);
-  client.setCallback(callbackSubscribe);
 
   while (!client.connected()) {
     client.connect(_clientID.c_str());
@@ -92,13 +81,66 @@ void setup() {
     Serial.print(".");
   }
   Serial.println("connected");
-  
+}
 
-  ////////////
+#endif
+///////////////////////////////////////////////
 
-  _topicRequestState = _topicRoot + TOPIC_REQUEST_STATE;
-  _topicMode = _topicRoot + TOPIC_MODE;
-  _topicState = _topicRoot + TOPIC_STATE;
+#ifdef HEAVY_BUILD
+WiFiUDP _udp;
+WiFiClient _wifiClient; 
+ESP8266ConfigurationWizard _ESP8266ConfigurationWizard(_udp, _wifiClient);
+PubSubClient* _mqtt;
+#endif
+
+
+uint8_t _mode = MODE_OFF;
+uint8_t _targetMode = MODE_OFF;
+
+unsigned long _lastModeChanged = 0;
+unsigned long _lastButtonPushed = 0;
+unsigned long _lastOutTime = 0;
+unsigned long _lastResponseTime = 0;
+
+bool _isPushButton = false;
+
+
+String _topicRoot = "ibap";
+
+String _topicState;
+String _topicRequestState;
+String _topicMode;
+
+StartupTimer _startupTimer;
+
+void onStatusCallback(int status);
+const char* onFilterOption(const char* name, const char* value);
+void callbackSubscribe(char* topic, byte* payload, unsigned int length);
+void publishState();
+
+
+
+void setup() {
+
+  Serial.begin(115200);
+
+  #ifdef LIGHT_BUILD
+   setup_wifi();
+  #endif
+
+  #ifdef HEAVY_BUILD
+  ESP.wdtDisable();
+   Config* config = _ESP8266ConfigurationWizard.getConfigPt();
+   config->setAPName("BlueAir_Pure211");
+   config->addOption("Device_key","", false);
+   //config->setTimeZone(9);
+   _ESP8266ConfigurationWizard.setOnFilterOption(onFilterOption);
+   _ESP8266ConfigurationWizard.setOnStatusCallback(onStatusCallback);
+   _ESP8266ConfigurationWizard.connect();
+   _mqtt = _ESP8266ConfigurationWizard.pubSubClient();
+      //config->addOption("Device key","", false);
+
+  #endif
 
   pinMode(BUTTON_PIN, INPUT);
   pinMode(OUT_PIN, OUTPUT);
@@ -107,16 +149,54 @@ void setup() {
   Serial.println(_topicRequestState.c_str());
   Serial.println(_topicMode.c_str());
 
+  _topicState = _topicRoot + TOPIC_STATE;
+  _topicRequestState = _topicRoot + TOPIC_REQUEST_STATE;
+  _topicMode = _topicRoot + TOPIC_STATE;
+
   _mqtt->setCallback(callbackSubscribe);
   _mqtt->subscribe((_topicRequestState).c_str());
   _mqtt->subscribe((_topicMode).c_str());
+
+
+  if(_mqtt->connected()) {
+     publishState();
+  }
   
+}
+
+
+void onStatusCallback(int status) {
+  if(status == MQTT_CONNECTED) {
+    Serial.println("MQTT Server connected.");
+    publishState();
+  }
+  
+
+}
+
+const char* onFilterOption(const char* name, const char* value) {
+  if(strcmp(name, "Device_key") == 0) {
+      int valueLen = strlen(value);
+      if(valueLen > 32) {
+        return "Please enter 16 characters or less.";
+      }      
+      for(int i = 0; i < valueLen; ++i) {
+        if( !(('0' <= value[i] && value[i] <= '9') || 
+              ('A' <= value[i] && value[i] <= 'Z') || 
+              ('a' <= value[i] && value[i] <= 'z') ) ) 
+        {
+          return "Only numbers or English alphabets can be entered.";
+        }
+      }
+  }
+  return "";
 }
 
 
 void callbackSubscribe(char* topic, byte* payload, unsigned int length) {
   Serial.println(topic);
-  if(String(topic).equals(_topicRequestState)) {
+  if(String(topic).equals(_topicRequestState) && (current < _lastResponseTime || current - _lastResponseTime > RESPONSE_STATUS_DELAY) ) {
+    _lastResponseTime = current;
     publishState();
   }
   else if(String(topic).endsWith(_topicMode) && length > 10) {
@@ -154,15 +234,23 @@ void callbackSubscribe(char* topic, byte* payload, unsigned int length) {
 void checkButton() {
   unsigned long current = millis();
   int value = digitalRead(BUTTON_PIN);
+  // 버튼 눌렀을 때
   if(value == LOW && !_isPushButton) {
       _isPushButton = true;
       _lastButtonPushed = current;
   }
+  // 버튼에서 손을 뗐을 때. 
   else if(value == HIGH && _isPushButton && (current < _lastButtonPushed || current - _lastButtonPushed > BUTTON_SETUP_IN_DELAY)) {
       _lastButtonPushed = current;
+      _isPushButton = false;
+      // 설정모드 진입.
+      #ifdef HEAVY_BUILD
+      _ESP8266ConfigurationWizard.startConfigurationMode();
+      #endif
   }
   else if(value == HIGH && _isPushButton && (current < _lastButtonPushed || current - _lastButtonPushed > BUTTON_DELAY)) {
       _lastButtonPushed = current;
+      _isPushButton = false;
       _targetMode = _mode;
       ++_targetMode;
       if(_targetMode > MODE_FAST) {
@@ -192,17 +280,23 @@ void nextMode() {
 }
 
 void publishState() {
+  if(!_mqtt->connected()) return;
   String message;
-  message = String("cmd") + "=state&targetMode=" + _targetMode +"&currentMode=" + _mode + "&ver=" + VER;
+  message = String("cmd") + "=state&targetMode=" + _targetMode +"&currentMode=" + _mode + "&ver=" + VER + "&addr=" + WiFi.localIP().toString() + "&startup=" + _startupTimer.startupMin();
   Serial.println(message);
   _mqtt->publish(_topicState.c_str(), message.c_str());
 }
 
 void loop(){
+  #ifdef LIGHT_BUILD 
+    _mqtt->loop();
+  #endif
+  #ifdef HEAVY_BUILD
+  _ESP8266ConfigurationWizard.loop();
+  if(_ESP8266ConfigurationWizard.isConfigurationMode()) return;
+  #endif
+  
+  _startupTimer.update();
   nextMode();
   checkButton();
-  _mqtt->loop();
-  
-
-  
 }
