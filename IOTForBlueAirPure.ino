@@ -13,8 +13,9 @@
 
 #define DEVICE_VER "0.9.0"
 
-#define BUTTON_PIN 4
-#define OUT_PIN 5
+#define BUTTON_PIN 12
+#define SPECAKER_PIN 5
+#define OUT_PIN 13
 
 #define MODE_OFF 0
 #define MODE_SLOW 1
@@ -22,9 +23,11 @@
 #define MODE_FAST 3
 
 #define MODE_DELAY 500
-#define BUTTON_DELAY 500
-#define BUTTON_SETUP_IN_DELAY 30000
+#define BUTTON_DELAY 1000
+#define BUTTON_SETUP_IN_DELAY 10000
 #define OUT_DELAY 50
+
+#define FILTER_RESET_DELAY 5500
 
 #define RESPONSE_STATUS_DELAY 100
 
@@ -44,12 +47,17 @@ unsigned long _lastModeChanged = 0;
 unsigned long _lastButtonPushed = 0;
 unsigned long _lastOutTime = 0;
 unsigned long _lastResponseTime = 0;
+unsigned long _startFilterResetTime = 0;
+
 
 bool _isPushButton = false;
+bool _isFilterResetMode = false;
+bool _isChildLock = false;
 
 
-String _topicRoot = "ibap";
 
+
+String _topicRoot = "";
 String _topicState;
 String _topicRequestState;
 String _topicMode;
@@ -61,7 +69,8 @@ const char* onFilterOption(const char* name, const char* value);
 void callbackSubscribe(char* topic, byte* payload, unsigned int length);
 void publishState();
 
-
+void playSoundAtSuccess();
+void playSoundAtError();
 
 void setup() {
 
@@ -80,6 +89,14 @@ void setup() {
    _ESP8266ConfigurationWizard.setOnStatusCallback(onStatusCallback);
    _mqtt = _ESP8266ConfigurationWizard.pubSubClient();
    _ESP8266ConfigurationWizard.connect();
+
+   if(!_ESP8266ConfigurationWizard.available()) {
+      playSoundAtError();
+   }
+    
+   
+    
+    
   #ifdef DEBUG 
     config->printConfig();
   #endif
@@ -95,6 +112,36 @@ void setup() {
   _topicMode = _topicRoot + TOPIC_MODE;
 
   
+}
+
+void playSoundAtSuccess() {
+    tone(SPECAKER_PIN, 392, 250);
+    delay(700);
+    noTone(SPECAKER_PIN);
+    tone(SPECAKER_PIN, 330, 250);
+    delay(400);
+    noTone(SPECAKER_PIN);
+    tone(SPECAKER_PIN, 330, 250);
+    delay(400);
+    noTone(SPECAKER_PIN);
+    tone(SPECAKER_PIN, 392, 250);
+    delay(400);
+    noTone(SPECAKER_PIN);
+    tone(SPECAKER_PIN, 330, 250);
+    delay(400);
+    noTone(SPECAKER_PIN);
+    tone(SPECAKER_PIN, 262, 250);
+    delay(400);
+    noTone(SPECAKER_PIN);
+}
+
+void playSoundAtError() {
+    tone(SPECAKER_PIN, 523, 250);
+    delay(500);
+    noTone(SPECAKER_PIN);
+    tone(SPECAKER_PIN, 262, 250);
+    delay(500);
+    noTone(SPECAKER_PIN);
 }
 
 
@@ -130,6 +177,7 @@ void onStatusCallback(int status) {
   #endif
   
   if(status == MQTT_CONNECTED) {
+    
     #ifdef DEBUG
       Serial.println("MQTT Server connected.");
     #endif
@@ -138,6 +186,7 @@ void onStatusCallback(int status) {
     _mqtt->subscribe((_topicMode).c_str());
   }
   else if(status == STATUS_OK) {
+    playSoundAtSuccess();
     #ifdef DEBUG  
       Serial.println("All connections are fine.");
     #endif
@@ -177,7 +226,7 @@ void callbackSubscribe(char* topic, byte* payload, unsigned int length) {
     _lastResponseTime = current;
     publishState();
   }
-  else if(String(topic).endsWith(_topicMode) && length > 10) {
+  else if(String(topic).endsWith(_topicMode) && length >= 5) {
     char* buffer = new char[length + 1];
     for(int i = 0; i < length; ++i) {
       buffer[i] = payload[i];
@@ -192,7 +241,8 @@ void callbackSubscribe(char* topic, byte* payload, unsigned int length) {
       DictionaryMap reqMap;
       reqMap.parseFromQueryString(buffer);
       char* cmd = reqMap.get("cmd");
-      char* targetMode = reqMap.get("targetMode");
+      char* targetMode = reqMap.get("tm");
+      char* childLock = reqMap.get("cl");
       
       #ifdef DEBUG
          Serial.print("cmd: ");
@@ -200,8 +250,14 @@ void callbackSubscribe(char* topic, byte* payload, unsigned int length) {
          Serial.print("targetMode: ");
          Serial.println(String(targetMode));
       #endif
-      
-      if(targetMode != nullptr && cmd != nullptr && strcmp(cmd, "mode") == 0) {
+      if(strcmp(cmd, "fr") == 0) {
+        _isFilterResetMode = true;
+      }
+      else if(strcmp(cmd, "cl") == 0 && childLock != nullptr) {
+        _isChildLock = strcmp(childLock, "1") == 0;
+        publishState();
+      }
+      else if(targetMode != nullptr && cmd != nullptr && strcmp(cmd, "mode") == 0) {
         uint8_t oldTargetMode = _targetMode;
         _targetMode =  String(targetMode).toInt();
         if(_targetMode > MODE_FAST) {
@@ -210,12 +266,13 @@ void callbackSubscribe(char* topic, byte* payload, unsigned int length) {
         if(oldTargetMode != _targetMode) {
           publishState();
         }
-        delete[] buffer;
      }
+     
    }
 }
 
 void checkButton() {
+  if(_isChildLock) return;
   unsigned long current = millis();
   int value = digitalRead(BUTTON_PIN);
   // 버튼 눌렀을 때
@@ -228,6 +285,7 @@ void checkButton() {
       _lastButtonPushed = current;
       _isPushButton = false;
       // 설정모드 진입.
+      playSoundAtError();
       _ESP8266ConfigurationWizard.startConfigurationMode();
       
   }
@@ -244,8 +302,31 @@ void checkButton() {
 }
 
 void nextMode() {
+
   unsigned long current = millis();
-  if(_mode != _targetMode && (current < _lastModeChanged || current - _lastModeChanged > MODE_DELAY) ) {
+  if(_isFilterResetMode) {
+    if(_startFilterResetTime == 0) {
+      #ifdef DEBUG
+      Serial.println("Start FilterReset");
+      #endif
+      publishState();
+      _startFilterResetTime = current;
+      digitalWrite(OUT_PIN, HIGH);
+    }
+    
+    if(current < _startFilterResetTime || current - _startFilterResetTime >= FILTER_RESET_DELAY) {
+      digitalWrite(OUT_PIN, LOW);
+      _isFilterResetMode = false; 
+      #ifdef DEBUG
+      Serial.println("END FilterReset");
+      #endif
+      _startFilterResetTime = 0;
+      publishState();
+      
+    }
+    return;
+  }
+  else if(_mode != _targetMode && (current < _lastModeChanged || current - _lastModeChanged > MODE_DELAY) ) {
       
       _lastModeChanged = current;
       ++_mode;
@@ -265,7 +346,7 @@ void nextMode() {
 void publishState() {
   if(!_mqtt->connected()) return;
   String message;
-  message = String("cmd") + "=state&targetMode=" + _targetMode +"&currentMode=" + _mode + "&ver=" + DEVICE_VER + "&addr=" + WiFi.localIP().toString() + "&startup=" + _startupTimer.startupMin();
+  message = String("cmd") + "=state&tm=" + _targetMode  + "&cm=" + _mode + "&cl=" + (_isChildLock ? 1 :  0) +  "&fr=" + (_isFilterResetMode ? 1 :  0) + "&v=" + DEVICE_VER + "&ip=" + WiFi.localIP().toString() + "&ut=" + _startupTimer.uptimeMin();
   #ifdef DEBUG
     Serial.print("publish message: ");
     Serial.println(message);
@@ -276,9 +357,8 @@ void publishState() {
 
 void loop(){
   _ESP8266ConfigurationWizard.loop();
-  if(_ESP8266ConfigurationWizard.isConfigurationMode()) return;
-  
   _startupTimer.update();
   nextMode();
   checkButton();
+  if(_ESP8266ConfigurationWizard.isConfigurationMode()) return;
 }

@@ -16,8 +16,8 @@ public:
     StartupTimer();
     StartupTimer& operator=(StartupTimer& startupTimer);
     void update();
-    int startupMin();
-    int startupDays();
+    int uptimeMin();
+    int uptimeDays();
 };
 
 StartupTimer::StartupTimer() : _lastMillis(0), _passed(0), _startupMin(0) {}
@@ -48,10 +48,10 @@ StartupTimer& StartupTimer::operator=(StartupTimer& startupTimer) {
 }
 
 
-int StartupTimer::startupMin() {
+int StartupTimer::uptimeMin() {
     return _startupMin;
 }
-int StartupTimer::startupDays() {
+int StartupTimer::uptimeDays() {
     return _startupMin / 1440;
 
 }
