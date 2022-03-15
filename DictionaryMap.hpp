@@ -40,7 +40,7 @@ public:
     void clear();
     char* get(char* key);
     bool onMatch(char* keyA, char* keyB);
-    char* toQueryString();
+    void toQueryString(Buffer* buffer);
     bool parseFromQueryString(char* queryString);
 private:
     char* decodeURL(char* str);
@@ -172,28 +172,27 @@ bool DictionaryMap::parseFromQueryString(char *queryString) {
     return true;
 }
 
-char* DictionaryMap::toQueryString() {
+void DictionaryMap::toQueryString(Buffer* buffer) {
     Enumeration<char*,char*> enums = enumeration();
-    Buffer buffer;
     while(enums.hasMoreNodes()) {
         Node<char*,char*> node = enums.nextNode();
         char* key = node.getKey();
         char* value = node.getValue();
         key = encodeURL(key);
         value = encodeURL(value);
-        buffer.write(key);
-        buffer.write("=");
-        buffer.write(value);
+        buffer->write(key);
+        buffer->write("=");
+        buffer->write(value);
 
         delete[] key;
         delete[] value;
 
         if(enums.hasMoreNodes()) {
-            buffer.write("&");
+            buffer->write("&");
         }
     }
-    char* result = readBuffer(&buffer);
-    return result;
+    //char* result = readBuffer(&buffer);
+    //return result;
 
 }
 

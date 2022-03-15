@@ -33,6 +33,7 @@ public:
     bool isReleased();
     int read(unsigned char* buf, int start, int len);
     unsigned char* buf();
+    const char* c_str();
 private:
     void copy(unsigned char* oldbuf,unsigned char* newbuf, int size);
     void expand(int newSize);
@@ -81,8 +82,8 @@ void Buffer::reset() {
     _size = 0;
 }
 void Buffer::expand(int newSize) {
-    int newCapacity = newSize > _capacity ? newSize :  _capacity + (_capacity / 3);
-    if(newCapacity == _capacity) newCapacity = _capacity * 2;
+    int estimatedSize = _capacity + (_capacity / 2);
+    int newCapacity = newSize < estimatedSize ? estimatedSize : newSize + (newSize / 3);
     unsigned char* newBuf = new unsigned char[newCapacity];
     for(int i = 0; i < newCapacity; ++i) {
         newBuf[i] = '\0';
@@ -90,11 +91,12 @@ void Buffer::expand(int newSize) {
     copy(_buf, newBuf, _size);
     delete[] _buf;
     _buf = newBuf;
+    _capacity = newCapacity;
 }
 
 void Buffer::write(char data) {
-    if(_size == _capacity) {
-        expand(-1);
+    if(_size >= _capacity) {
+      expand(_size + 1);
     }
     _buf[_size] = data;
     ++_size;
@@ -106,8 +108,8 @@ void Buffer::beginPos() {
 
 void Buffer::write(const char* data) {
     int len = strlen(data);
-    if(_size + len <= _capacity) {
-        expand(_size + len + _capacity);
+    if(_size + len >= _capacity) {
+        expand(_size + len);
     }
     for(int i = 0; i < len; ++i) {
         _buf[_size] = data[i];
@@ -116,8 +118,8 @@ void Buffer::write(const char* data) {
 }
 
 void Buffer::write(unsigned char* data,int len) {
-    if(_size + len <= _capacity) {
-        expand(_size + len + _capacity);
+    if(_size + len >= _capacity) {
+        expand(_size + len);
     }
     for(int i = 0; i < len; ++i) {
         _buf[_size] = data[i];
@@ -156,6 +158,14 @@ int Buffer::next(unsigned char* buffer, int bufferLen,unsigned char split) {
         buffer[bufferPos] = _buf[p];
     }
     return -1;
+}
+
+const char* Buffer::c_str() {
+    if(_size + 1 >= _capacity) {
+       expand(_size + 1);
+    }
+    _buf[_size] = '\0';
+    return (const char*)_buf;
 }
 
 
