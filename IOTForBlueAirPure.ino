@@ -25,9 +25,11 @@
 // 각 모드 전환 딜레이. 예를 들어 MODE_SLOW 에서 MODE_NORMAL 로 바뀌는데 500ms 딜레이 발생.
 #define MODE_DELAY 500
 // 버튼 동작 딜레이. 지정된 시간(1초) 이전에 버튼을 누를 경우 동작되지 않음.
-#define BUTTON_DELAY 1000
-// 설정된 시간(MS) 이상으로 버튼을 누르고 있으면 셋업 모드로 들어간다.
+// #define BUTTON_DELAY 1000
+// 설정된 시간(MS) 이상으로 버튼을 눌렀다 떼면 셋업 모드로 들어간다.
 #define BUTTON_PRESS_TIME_TO_SETUP 10000
+// 설정된 시간(MS) 이상으로 버튼을 눌렀가 떼면 모드가 변경된다.
+#defibe BUTTON_PRESS_TIME_TO_CHANGE_MODE 500
 // 지정된 시간(MS)만큼 OUT_PIN 에서 HIGH 신호 발생
 #define OUTPUT_DELAY 50
 // 기본 5.5초 이상으로 OUT_PIN 에서 HIGH 신호를 발생시켜 필터 초기화를 진행한다.
@@ -321,33 +323,43 @@ void callbackSubscribe(char* topic, byte* payload, unsigned int length) {
 }
 
 void checkButton() {
-  if (_isChildLock) return;
+
   unsigned long current = millis();
   int value = digitalRead(BUTTON_PIN);
   // 버튼 눌렀을 때
-  if (value == LOW && !_isPushButton) {
+  if (value == LOW) {
     _isPushButton = true;
-    _lastButtonPushed = current;
+    if(_lastButtonPushed == 0) {
+       _lastButtonPushed = current;
+    }
+  } else (value == HIGH) {
+    _isPushButton = false;
+    _lastButtonPushed = 0;
   }
-  // 버튼에서 손을 뗐을 때.
-  else if (value == HIGH && _isPushButton && (current < _lastButtonPushed || current - _lastButtonPushed > BUTTON_PRESS_TIME_TO_SETUP)) {
-    _lastButtonPushed = current;
+ 
+  if (_isPushButton &&  _lastButtonPushed > -1 &&  (current < _lastButtonPushed || current - _lastButtonPushed > BUTTON_PRESS_TIME_TO_SETUP)) {
+    _lastButtonPushed = -1;
     _isPushButton = false;
     // 설정모드 진입.
     playAlertBeep();
     _ESP8266ConfigurationWizard.startConfigurationMode();
 
   }
-  else if (value == HIGH && _isPushButton && (current < _lastButtonPushed || current - _lastButtonPushed > BUTTON_DELAY)) {
-    _lastButtonPushed = current;
+  else if (_isPushButton && _lastButtonPushed > -1 && (current < _lastButtonPushed || current - _lastButtonPushed > BUTTON_PRESS_TIME_TO_CHANGE_MODE)) {
+    _lastButtonPushed = -1;
     _isPushButton = false;
-    _targetMode = _mode;
+    if (_isChildLock) { 
+        tone(SPECAKER_PIN, 823, 100);
+        tone(SPECAKER_PIN, 623, 100);
+        return;
+     }
+     _targetMode = _mode;
     ++_targetMode;
     if (_targetMode > MODE_FAST) {
       _targetMode = MODE_OFF;
     }
     publishState();
-  }
+  } 
 }
 
 void nextMode() {
