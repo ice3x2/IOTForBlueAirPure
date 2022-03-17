@@ -131,6 +131,7 @@ void setup() {
 }
 
 void playSuccessBeep() {
+  /* 산토끼...
   tone(SPECAKER_PIN, 392, 250);
   delay(700);
   noTone(SPECAKER_PIN);
@@ -148,16 +149,35 @@ void playSuccessBeep() {
   noTone(SPECAKER_PIN);
   tone(SPECAKER_PIN, 262, 250);
   delay(400);
+  noTone(SPECAKER_PIN);*/
+  tone(SPECAKER_PIN, 523, 100);
+  delay(100);
+  tone(SPECAKER_PIN, 623, 100);
+  delay(100);
+  tone(SPECAKER_PIN, 823, 250);
+  delay(250);
   noTone(SPECAKER_PIN);
+
+  
 }
 
 void playAlertBeep() {
-  tone(SPECAKER_PIN, 523, 250);
+  /*tone(SPECAKER_PIN, 523, 250);
   delay(500);
   noTone(SPECAKER_PIN);
   tone(SPECAKER_PIN, 262, 250);
   delay(500);
+  noTone(SPECAKER_PIN);*/
+  tone(SPECAKER_PIN, 392, 250);
+  delay(1000);
   noTone(SPECAKER_PIN);
+  tone(SPECAKER_PIN, 392, 250);
+  delay(1000);
+  noTone(SPECAKER_PIN);
+  tone(SPECAKER_PIN, 392, 250);
+  delay(1000);
+  noTone(SPECAKER_PIN);
+  
 }
 
 
