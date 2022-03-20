@@ -29,7 +29,7 @@
 // 설정된 시간(MS) 이상으로 버튼을 눌렀다 떼면 셋업 모드로 들어간다.
 #define BUTTON_PRESS_TIME_TO_SETUP 10000
 // 설정된 시간(MS) 이상으로 버튼을 눌렀가 떼면 모드가 변경된다.
-#defibe BUTTON_PRESS_TIME_TO_CHANGE_MODE 200
+#define BUTTON_PRESS_TIME_TO_CHANGE_MODE 200
 // 지정된 시간(MS)만큼 OUT_PIN 에서 HIGH 신호 발생
 #define OUTPUT_DELAY 50
 // 기본 5.5초 이상으로 OUT_PIN 에서 HIGH 신호를 발생시켜 필터 초기화를 진행한다.
@@ -144,7 +144,7 @@ void playSuccessBeep() {
 void playAlertBeep() {
   randomSeed(millis());
   for(int i = 0; i < 30; ++i) {
-      tone(SPECAKER_PIN, random(400) + 500, random(100) + 150);
+      tone(SPECAKER_PIN,(unsigned int)(random(400) + 500),(unsigned int)( random(100) + 150));
   }
   noTone(SPECAKER_PIN);
   
@@ -340,7 +340,7 @@ void checkButton() {
     }
     publishState();
   } 
-  else (value == HIGH) {
+  else if(value == HIGH) {
     _isPushButton = false;
     _lastButtonPushed = -1;
   }
