@@ -29,7 +29,7 @@
 // 설정된 시간(MS) 이상으로 버튼을 눌렀다 떼면 셋업 모드로 들어간다.
 #define BUTTON_PRESS_TIME_TO_SETUP 10000
 // 설정된 시간(MS) 이상으로 버튼을 눌렀가 떼면 모드가 변경된다.
-#defibe BUTTON_PRESS_TIME_TO_CHANGE_MODE 500
+#defibe BUTTON_PRESS_TIME_TO_CHANGE_MODE 200
 // 지정된 시간(MS)만큼 OUT_PIN 에서 HIGH 신호 발생
 #define OUTPUT_DELAY 50
 // 기본 5.5초 이상으로 OUT_PIN 에서 HIGH 신호를 발생시켜 필터 초기화를 진행한다.
@@ -92,7 +92,7 @@ void publishHeartbeat();
 
 void playSuccessBeep();
 void playAlertBeep();
-
+void playSetupModeBoot();
 void setup() {
 
 #ifdef DEBUG
@@ -127,13 +127,32 @@ void setup() {
   if (!_ESP8266ConfigurationWizard.available()) {
     playAlertBeep();
   }
-  
-
-
 }
 
 void playSuccessBeep() {
-  /* 산토끼...
+  tone(SPECAKER_PIN, 523, 100);
+  delay(100);
+  tone(SPECAKER_PIN, 623, 100);
+  delay(100);
+  tone(SPECAKER_PIN, 823, 250);
+  delay(250);
+  noTone(SPECAKER_PIN);
+
+  
+}
+
+void playAlertBeep() {
+  randomSeed(millis());
+  for(int i = 0; i < 30; ++i) {
+      tone(SPECAKER_PIN, random(400) + 500, random(100) + 150);
+  }
+  noTone(SPECAKER_PIN);
+  
+  
+}
+
+void playSetupModeBeep() {
+// 산토끼...
   tone(SPECAKER_PIN, 392, 250);
   delay(700);
   noTone(SPECAKER_PIN);
@@ -151,33 +170,6 @@ void playSuccessBeep() {
   noTone(SPECAKER_PIN);
   tone(SPECAKER_PIN, 262, 250);
   delay(400);
-  noTone(SPECAKER_PIN);*/
-  tone(SPECAKER_PIN, 523, 100);
-  delay(100);
-  tone(SPECAKER_PIN, 623, 100);
-  delay(100);
-  tone(SPECAKER_PIN, 823, 250);
-  delay(250);
-  noTone(SPECAKER_PIN);
-
-  
-}
-
-void playAlertBeep() {
-  /*tone(SPECAKER_PIN, 523, 250);
-  delay(500);
-  noTone(SPECAKER_PIN);
-  tone(SPECAKER_PIN, 262, 250);
-  delay(500);
-  noTone(SPECAKER_PIN);*/
-  tone(SPECAKER_PIN, 392, 250);
-  delay(1000);
-  noTone(SPECAKER_PIN);
-  tone(SPECAKER_PIN, 392, 250);
-  delay(1000);
-  noTone(SPECAKER_PIN);
-  tone(SPECAKER_PIN, 392, 250);
-  delay(1000);
   noTone(SPECAKER_PIN);
   
 }
@@ -329,25 +321,13 @@ void checkButton() {
   // 버튼 눌렀을 때
   if (value == LOW) {
     _isPushButton = true;
-    if(_lastButtonPushed == 0) {
+    if(_lastButtonPushed == -1) {
        _lastButtonPushed = current;
     }
-  } else (value == HIGH) {
-    _isPushButton = false;
-    _lastButtonPushed = 0;
-  }
- 
-  if (_isPushButton &&  _lastButtonPushed > -1 &&  (current < _lastButtonPushed || current - _lastButtonPushed > BUTTON_PRESS_TIME_TO_SETUP)) {
+  } 
+  // 버튼의 오동작으로인해서 잘못된 데이터가 들어오는 것을 방지한다.
+  else if (value == HIGH && _isPushButton && _lastButtonPushed > -1 && (current < _lastButtonPushed || current - _lastButtonPushed > BUTTON_PRESS_TIME_TO_CHANGE_MODE)) {
     _lastButtonPushed = -1;
-    _isPushButton = false;
-    // 설정모드 진입.
-    playAlertBeep();
-    _ESP8266ConfigurationWizard.startConfigurationMode();
-
-  }
-  else if (_isPushButton && _lastButtonPushed > -1 && (current < _lastButtonPushed || current - _lastButtonPushed > BUTTON_PRESS_TIME_TO_CHANGE_MODE)) {
-    _lastButtonPushed = -1;
-    _isPushButton = false;
     if (_isChildLock) { 
         tone(SPECAKER_PIN, 823, 100);
         tone(SPECAKER_PIN, 623, 100);
@@ -360,6 +340,20 @@ void checkButton() {
     }
     publishState();
   } 
+  else (value == HIGH) {
+    _isPushButton = false;
+    _lastButtonPushed = -1;
+  }
+ 
+  if (_isPushButton &&  _lastButtonPushed > -1 &&  (current < _lastButtonPushed || current - _lastButtonPushed > BUTTON_PRESS_TIME_TO_SETUP)) {
+    _lastButtonPushed = -1;
+    _isPushButton = false;
+    // 설정모드 진입.
+    playSetupModeBeep();
+    _ESP8266ConfigurationWizard.startConfigurationMode();
+
+  }
+  
 }
 
 void nextMode() {
