@@ -29,7 +29,7 @@
 // 설정된 시간(MS) 이상으로 버튼을 눌렀다 떼면 셋업 모드로 들어간다.
 #define BUTTON_PRESS_TIME_TO_SETUP 10000
 // 설정된 시간(MS) 이상으로 버튼을 눌렀가 떼면 모드가 변경된다.
-#define BUTTON_PRESS_TIME_TO_CHANGE_MODE 200
+#define BUTTON_PRESS_TIME_TO_CHANGE_MODE 100
 // 지정된 시간(MS)만큼 OUT_PIN 에서 HIGH 신호 발생
 #define OUTPUT_DELAY 50
 // 기본 5.5초 이상으로 OUT_PIN 에서 HIGH 신호를 발생시켜 필터 초기화를 진행한다.
@@ -89,10 +89,11 @@ const char* onFilterOption(const char* name, const char* value);
 void callbackSubscribe(char* topic, byte* payload, unsigned int length);
 void publishState();
 void publishHeartbeat();
-
+void playSanTokkiBeep();
 void playSuccessBeep();
 void playAlertBeep();
-void playSetupModeBoot();
+void playChildLockBeep();
+void playSetupModeBeep();
 void setup() {
 
 #ifdef DEBUG
@@ -144,34 +145,47 @@ void playSuccessBeep() {
 void playAlertBeep() {
   randomSeed(millis());
   for(int i = 0; i < 30; ++i) {
-      tone(SPECAKER_PIN,(unsigned int)(random(400) + 500),(unsigned int)( random(100) + 150));
+      int duration =  (unsigned int)( random(10) + 50);
+      tone(SPECAKER_PIN,(unsigned int)(random(500) + 600),duration );
+      delay(duration);
   }
   noTone(SPECAKER_PIN);
-  
+}
+
+void playChildLockBeep() {
+  tone(SPECAKER_PIN, 823, 100);
+  delay(100);
+  tone(SPECAKER_PIN, 623, 100);
+  delay(100);
+}
+
+
+void playSanTokkiBeep() {
+  noTone(SPECAKER_PIN);
+  int melody[] = {262, 294, 330, 349, 392, 440, 494, 523};
+  int line[] =      {4,2,2, 4,2,0, 1,2,1, 0,2,4, 7,4,7,4, 7,4,2, 4,1,3, 2,1,0};
+  int durations[] = {4,2,2, 2,2,4, 4,2,2, 2,2,4, 3,1,2,2, 2,2,4, 4,2,2, 2,2,4}; 
+  for(int i = 0; i < 25; ++i) {
+    int duration = map(durations[i],0,4,0,600);
+    int delayVal = map(durations[i],0,4,0,700);
+    if(i % 10 == 0) publishHeartbeat();
+    tone(SPECAKER_PIN, melody[line[i]],  duration);
+    delay(delayVal);
+  }
   
 }
 
+
 void playSetupModeBeep() {
-// 산토끼...
-  tone(SPECAKER_PIN, 392, 250);
-  delay(700);
+  tone(SPECAKER_PIN, 823, 100);
+  delay(500);
+  tone(SPECAKER_PIN, 823, 100);
+  delay(100);
+  tone(SPECAKER_PIN, 623, 100);
+  delay(100);
+  tone(SPECAKER_PIN, 523, 250);
+  delay(250);
   noTone(SPECAKER_PIN);
-  tone(SPECAKER_PIN, 330, 250);
-  delay(400);
-  noTone(SPECAKER_PIN);
-  tone(SPECAKER_PIN, 330, 250);
-  delay(400);
-  noTone(SPECAKER_PIN);
-  tone(SPECAKER_PIN, 392, 250);
-  delay(400);
-  noTone(SPECAKER_PIN);
-  tone(SPECAKER_PIN, 330, 250);
-  delay(400);
-  noTone(SPECAKER_PIN);
-  tone(SPECAKER_PIN, 262, 250);
-  delay(400);
-  noTone(SPECAKER_PIN);
-  
 }
 
 
@@ -292,10 +306,12 @@ void callbackSubscribe(char* topic, byte* payload, unsigned int length) {
     Serial.print("targetMode: ");
     Serial.println(String(targetMode));
 #endif
-    if (strcmp(cmd, "fr") == 0) {
+    if(cmd == nullptr) {}
+    else if (strcmp(cmd, "filterReset") == 0) {
+      
       _isFilterResetMode = true;
     }
-    else if (strcmp(cmd, "cl") == 0 && childLock != nullptr) {
+    else if (strcmp(cmd, "childLock") == 0 && childLock != nullptr) {
       _isChildLock = strcmp(childLock, "1") == 0;
       publishState();
     }
@@ -309,8 +325,27 @@ void callbackSubscribe(char* topic, byte* payload, unsigned int length) {
         publishState();
       }
     }
+    // test play santokki beep
+    else if (strcmp(cmd, "tp_stk_bp") == 0) {
+      playSanTokkiBeep();
+    }
+    // test play success beep 
+    else if (strcmp(cmd, "tp_ss_bp") == 0) {
+      playSuccessBeep();
+    }
+    // test play alert beep 
+    else if (strcmp(cmd, "tp_at_bp") == 0 ) {
+      playAlertBeep();
+    }
+    // test play childlock beep
+    else if (strcmp(cmd, "tp_cl_bp") == 0 ) {
+      playChildLockBeep();
+    }
+    // test play setup mode beep
+    else if (strcmp(cmd, "tp_sm_bp") == 0 ) {
+      playSetupModeBeep();
+    }
     delete[] buffer;
-
   }
 }
 
@@ -318,19 +353,21 @@ void checkButton() {
 
   unsigned long current = millis();
   int value = digitalRead(BUTTON_PIN);
+
   // 버튼 눌렀을 때
   if (value == LOW) {
+    if(!_isPushButton) _lastButtonPushed = current;
     _isPushButton = true;
-    if(_lastButtonPushed == -1) {
-       _lastButtonPushed = current;
-    }
   } 
   // 버튼의 오동작으로인해서 잘못된 데이터가 들어오는 것을 방지한다.
-  else if (value == HIGH && _isPushButton && _lastButtonPushed > -1 && (current < _lastButtonPushed || current - _lastButtonPushed > BUTTON_PRESS_TIME_TO_CHANGE_MODE)) {
+  else if (value == HIGH && _isPushButton && _lastButtonPushed != -1 && (current < _lastButtonPushed || current - _lastButtonPushed > BUTTON_PRESS_TIME_TO_CHANGE_MODE)) {
+    #ifdef DEBUG
+     Serial.print("button up");
+    #endif
+    _isPushButton = false;
     _lastButtonPushed = -1;
     if (_isChildLock) { 
-        tone(SPECAKER_PIN, 823, 100);
-        tone(SPECAKER_PIN, 623, 100);
+        playChildLockBeep();
         return;
      }
      _targetMode = _mode;
@@ -345,7 +382,10 @@ void checkButton() {
     _lastButtonPushed = -1;
   }
  
-  if (_isPushButton &&  _lastButtonPushed > -1 &&  (current < _lastButtonPushed || current - _lastButtonPushed > BUTTON_PRESS_TIME_TO_SETUP)) {
+  if (_isPushButton &&  _lastButtonPushed != -1 &&  (current < _lastButtonPushed || current - _lastButtonPushed > BUTTON_PRESS_TIME_TO_SETUP)) {
+    #ifdef DEBUG
+     Serial.print("button up - setupmode");
+    #endif
     _lastButtonPushed = -1;
     _isPushButton = false;
     // 설정모드 진입.
@@ -367,6 +407,7 @@ void nextMode() {
       publishState();
       _startFilterResetTime = current;
       digitalWrite(OUT_PIN, HIGH);
+      playSetupModeBeep();
     }
 
     if (current < _startFilterResetTime || current - _startFilterResetTime >= FILTER_RESET_DELAY) {
@@ -410,13 +451,21 @@ void publishHeartbeat() {
   message += _ESP8266ConfigurationWizard.getEpochTime();
   _mqtt->publish(_topicHeartbeat.c_str(), message.c_str());
   #ifdef DEBUG
-  Serial.println(ESP.getFreeHeap());
+  //Serial.println(ESP.getFreeHeap());
   #endif
 }
 
 void publishState() {
   if (!_mqtt->connected()) return;
   String message;
+  // 자주 전송하는 메시지의 바이트수를 줄이기 위하여 약어를 사용한다.
+  // cm : current mode
+  // tm : target mode
+  // cl : child lock
+  // fr : filter reset
+  // v : version
+  // ip : ip address
+  // ut : up time
   message = String("cmd") + "=state&tm=" + _targetMode  + "&cm=" + _mode + "&cl=" + (_isChildLock ? 1 :  0) +  "&fr=" + (_isFilterResetMode ? 1 :  0) + "&v=" + DEVICE_VER + "&ip=" + WiFi.localIP().toString() + "&ut=" + _startupTimer.uptimeMin();
 #ifdef DEBUG
   Serial.print(_topicState);
